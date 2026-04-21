@@ -1,0 +1,62 @@
+user:
+  name: Your Name
+  git_identities:
+    - "Your Name"
+    - "your-git-alias"
+
+repos:
+  - path: /absolute/path/to/repo-one
+    name: "Frontend"
+  - path: /absolute/path/to/repo-two
+    name: "Backend API"
+
+# AI provider configuration
+# Supported providers: anthropic | openai
+ai:
+  provider: anthropic                  # anthropic | openai
+  model: claude-sonnet-4-6
+  api_key: YOUR_API_KEY_HERE           # safe here — this file is gitignored
+
+  # OpenAI example:
+  # provider: openai
+  # model: gpt-4o
+  # api_key: YOUR_API_KEY_HERE
+
+profile:
+  role: "Senior Software Engineer"
+  expectations: |
+    GENERAL PROFILE
+    Individual possesses all necessary skills to identify and solve problems,
+    and are able to operate autonomously with little oversight.
+
+    IMPACT
+    Solves problem statements with moderate levels. Directly makes progress
+    on team deliverables and goals with autonomy. Deliver big features and
+    contribute to solution discussions.
+
+    Technical Knowledge
+    - Demonstrates knowledge of relevant infrastructure, service architectures,
+      tools, libraries, frameworks, and continuous deployment systems
+    - Perceives and criticizes unnecessary deviations from common patterns;
+      improves codebase/infrastructure consistency
+    - Understands the broad architecture of the entire system
+    - Understands and makes well-reasoned design tradeoffs in their area
+    - Able to design technical solutions on the scope of the team
+
+    Communication
+    - Distills functional knowledge into effective communication for
+      cross-functional stakeholders
+    - Proactively identifies problems with requirements and communicates early
+    - Able to participate in meetings with clients and answer technical questions
+
+    Deliveries
+    - Capable of assuming big features and going through design to completion
+    - Assesses and scopes problem statements autonomously
+    - Capable of debugging and troubleshooting complex problems
+    - Avoids bikeshedding, focuses on high-impact/high-risk items
+
+    BEHAVIOR
+    - Collaboration: Builds trusted relationships with senior leaders
+    - Growth Mindset: Acts quickly on feedback, seeks opportunities to up-level
+    - Company Values: Embraces company values in day-to-day work
+    - Leadership: Mentors and coaches team members with guidance from manager

@@ -3,21 +3,28 @@
   "version": "1.0.0",
   "scripts": {
     "xml-los-format": "node --experimental-modules src/xml-los-formating.js",
-    "login-ssn": "node src/auto-login/auto-login-with-ssh.js local"
+    "login-ssn": "node src/auto-login/auto-login-with-ssh.js local",
+    "perf-review": "node src/performance-review/index.js"
   },
   "type": "module",
   "author": "Leonardo Dias",
   "license": "ISC",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "date-fns": "^3.6.0",
     "dotenv": "^16.0.3",
     "fs": "^0.0.1-security",
+    "inquirer": "^9.3.7",
+    "js-yaml": "^4.1.0",
     "node-xlsx": "^0.24.0",
+    "openai": "^4.77.0",
     "papa": "^0.0.0",
     "papaparse": "^5.3.2",
     "puppeteer": "^18.0.5",
+    "simple-git": "^3.27.0",
     "xml-formatter": "^3.0.2"
   },
   "engines": {
-    "node": ">=12.0"
+    "node": ">=18.0"
   }
 }

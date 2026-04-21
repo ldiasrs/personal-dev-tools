@@ -1,3 +1,5 @@
 node_modules/
 .env
 src/auto-login/config.js
+performance-review/config/
+performance-review/data/
