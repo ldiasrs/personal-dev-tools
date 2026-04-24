@@ -1,9 +1,11 @@
 import { AnthropicProvider } from "./providers/anthropic.js";
 import { OpenAIProvider } from "./providers/openai.js";
+import { ClaudeCodeProvider } from "./providers/claude-code.js";
 
 const PROVIDERS = {
   anthropic: AnthropicProvider,
   openai: OpenAIProvider,
+  "claude-code": ClaudeCodeProvider,
 };
 
 export function createProvider(aiConfig) {

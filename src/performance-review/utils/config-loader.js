@@ -10,12 +10,12 @@ const REQUIRED_FIELDS = [
   ["repos", (c) => c.repos?.length > 0],
   ["ai.provider", (c) => c.ai?.provider],
   ["ai.model", (c) => c.ai?.model],
-  ["ai.api_key", (c) => c.ai?.api_key],
   ["profile.role", (c) => c.profile?.role],
   ["profile.expectations", (c) => c.profile?.expectations],
 ];
 
-const SUPPORTED_PROVIDERS = ["anthropic", "openai"];
+const PROVIDERS_REQUIRING_API_KEY = ["anthropic", "openai"];
+const SUPPORTED_PROVIDERS = [...PROVIDERS_REQUIRING_API_KEY, "claude-code"];
 
 export function loadConfig() {
   let raw;
@@ -40,6 +40,10 @@ export function loadConfig() {
     throw new Error(
       `Unsupported AI provider "${config.ai.provider}". Supported: ${SUPPORTED_PROVIDERS.join(", ")}`
     );
+  }
+
+  if (PROVIDERS_REQUIRING_API_KEY.includes(config.ai.provider) && !config.ai.api_key) {
+    throw new Error(`Missing required config field: ai.api_key (required for provider "${config.ai.provider}")`);
   }
 
   return config;

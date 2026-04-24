@@ -118,6 +118,17 @@ solutions at team scope.
 
 See the [project README](../../README.md) for full setup instructions.
 
+### Running without an API key
+
+Set `provider: claude-code` in your config to use the Claude Code CLI instead of the API.
+This requires Claude Code to be installed and authenticated (`claude auth login`) — no API key needed.
+
+```yaml
+ai:
+  provider: claude-code
+  # model: sonnet   # optional
+```
+
 ---
 
 ## Architecture

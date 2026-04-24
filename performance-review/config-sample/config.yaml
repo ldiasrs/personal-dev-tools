@@ -11,9 +11,9 @@ repos:
     name: "Backend API"
 
 # AI provider configuration
-# Supported providers: anthropic | openai
+# Supported providers: anthropic | openai | claude-code
 ai:
-  provider: anthropic                  # anthropic | openai
+  provider: anthropic                  # anthropic | openai | claude-code
   model: claude-sonnet-4-6
   api_key: YOUR_API_KEY_HERE           # safe here — this file is gitignored
 
@@ -21,6 +21,10 @@ ai:
   # provider: openai
   # model: gpt-4o
   # api_key: YOUR_API_KEY_HERE
+
+  # claude-code: no API key needed — uses your Claude Code CLI session (claude.ai login)
+  # provider: claude-code
+  # model: sonnet   # optional — omit to use CLI default
 
 profile:
   role: "Senior Software Engineer"
