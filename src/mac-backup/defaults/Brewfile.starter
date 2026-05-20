@@ -1,0 +1,64 @@
+# Bootstrap Brewfile for a new (or current) Mac dev setup.
+# Edit before running, then:  brew bundle install --file=Brewfile.starter
+#
+# After install, mac-backup will auto-generate the live Brewfile via
+# `brew bundle dump --force` and include it in each backup bundle.
+
+# === CLI tools ===
+brew "asdf"
+brew "awscli"
+brew "awscli-local"
+brew "colima"
+brew "docker"
+brew "docker-compose"
+brew "eza"
+brew "ffmpeg"
+brew "gh"
+brew "git"
+brew "jq"
+brew "node"
+brew "nvm"
+brew "pyenv"
+brew "python@3.9"
+brew "mas"            # Mac App Store CLI
+brew "tree"
+brew "wget"
+brew "yq"             # like jq for YAML
+brew "watchman"       # often required by RN / file-watching tools
+
+# === Terminal ===
+cask "ghostty"
+
+# === Editors / IDEs ===
+cask "visual-studio-code"
+cask "cursor"
+
+# === Dev tools ===
+cask "bruno"          # API client (Postman alternative, OSS)
+cask "tableplus"      # DB client
+
+# === Productivity ===
+cask "raycast"        # Launcher (Spotlight replacement)
+cask "rectangle"      # Window snapping
+
+# === Secrets ===
+cask "1password"
+cask "1password-cli"
+
+# === Collab ===
+cask "slack"
+cask "notion"
+cask "zoom"
+
+# === Browsers ===
+cask "google-chrome"
+cask "firefox"
+
+# === Fonts ===
+cask "font-fira-code"
+cask "font-meslo-lg-nerd-font"
+cask "font-jetbrains-mono"
+
+# === Mac App Store apps (uncomment what you want) ===
+# mas "Xcode", id: 497799835
+# mas "Things 3", id: 904280696

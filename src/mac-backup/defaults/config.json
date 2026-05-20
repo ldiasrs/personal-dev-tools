@@ -1,0 +1,69 @@
+{
+  "outputDir": "~/Documents/mac-backups",
+  "encryption": {
+    "algo": "aes-256-cbc",
+    "kdf": "pbkdf2",
+    "iter": 200000
+  },
+  "include": {
+    "home": [
+      ".zshrc",
+      ".gitconfig",
+      ".asdfrc",
+      ".tool-versions",
+      ".aws/config",
+      ".docker/config.json",
+      ".config/gh/config.yml"
+    ],
+    "vscode": {
+      "userDir": "~/Library/Application Support/Code/User",
+      "files": ["settings.json", "keybindings.json"],
+      "dirs": ["snippets"],
+      "exportExtensions": true
+    },
+    "brew": {
+      "dumpBrewfile": true
+    },
+    "macosDefaults": "defaults/macos-defaults.json"
+  },
+  "exclude": [
+    "**/hosts.yml",
+    "**/credentials",
+    "**/credentials.json",
+    "**/*.pem",
+    "**/*.key",
+    "**/id_rsa*",
+    "**/id_ed25519*",
+    "**/id_ecdsa*",
+    "**/id_dsa*",
+    "**/.env",
+    "**/.env.*",
+    "**/.npmrc",
+    "**/.pypirc",
+    "**/*token*",
+    "**/*secret*"
+  ],
+  "scanForLarge": {
+    "enabled": true,
+    "roots": ["~", "~/Library"],
+    "minSizeMB": 100,
+    "maxDepth": 2,
+    "autoSkip": [
+      "~/.Trash",
+      "~/Library/Caches",
+      "~/Library/Logs",
+      "~/.cache",
+      "~/.npm",
+      "~/.nvm",
+      "~/.pyenv",
+      "~/.oh-my-zsh",
+      "~/Library/Application Support/Code/Cache",
+      "~/Library/Application Support/Code/CachedData",
+      "~/Library/Application Support/Code/Code Cache"
+    ]
+  },
+  "secretsGate": {
+    "mode": "hardFail",
+    "overrideFlag": "--allow-secrets-warning"
+  }
+}

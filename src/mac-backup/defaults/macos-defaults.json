@@ -1,0 +1,16 @@
+{
+  "defaults": [
+    { "domain": "NSGlobalDomain", "key": "KeyRepeat", "type": "int", "value": 2, "note": "Faster key repeat" },
+    { "domain": "NSGlobalDomain", "key": "InitialKeyRepeat", "type": "int", "value": 15, "note": "Shorter repeat delay" },
+    { "domain": "NSGlobalDomain", "key": "ApplePressAndHoldEnabled", "type": "bool", "value": false, "note": "Disable press-and-hold so key repeat works in all apps" },
+    { "domain": "com.apple.finder", "key": "AppleShowAllFiles", "type": "bool", "value": true, "note": "Show hidden files in Finder" },
+    { "domain": "com.apple.finder", "key": "ShowPathbar", "type": "bool", "value": true, "note": "Finder path bar" },
+    { "domain": "com.apple.finder", "key": "ShowStatusBar", "type": "bool", "value": true, "note": "Finder status bar" },
+    { "domain": "NSGlobalDomain", "key": "AppleShowAllExtensions", "type": "bool", "value": true, "note": "Show all file extensions" },
+    { "domain": "com.apple.desktopservices", "key": "DSDontWriteNetworkStores", "type": "bool", "value": true, "note": "No .DS_Store on network shares" },
+    { "domain": "com.apple.desktopservices", "key": "DSDontWriteUSBStores", "type": "bool", "value": true, "note": "No .DS_Store on USB drives" },
+    { "domain": "com.apple.screencapture", "key": "location", "type": "string", "value": "~/Downloads", "note": "Screenshots to Downloads" },
+    { "domain": "com.apple.dock", "key": "autohide", "type": "bool", "value": true, "note": "Auto-hide the Dock" },
+    { "domain": "com.apple.dock", "key": "tilesize", "type": "int", "value": 36, "note": "Smaller Dock tiles" }
+  ]
+}

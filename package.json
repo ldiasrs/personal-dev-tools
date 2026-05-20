@@ -4,7 +4,9 @@
   "scripts": {
     "xml-los-format": "node --experimental-modules src/xml-los-formating.js",
     "login-ssn": "node src/auto-login/auto-login-with-ssh.js local",
-    "perf-review": "node src/performance-review/index.js"
+    "perf-review": "node src/performance-review/index.js",
+    "mac-backup": "node src/mac-backup/index.js backup",
+    "mac-restore": "node src/mac-backup/index.js restore"
   },
   "type": "module",
   "author": "Leonardo Dias",
