@@ -76,7 +76,7 @@ function removeEmptyDirs(root) {
   if (!fs.existsSync(root)) return;
   for (const name of fs.readdirSync(root)) {
     const p = path.join(root, name);
-    const st = fs.statSync(p);
+    const st = fs.lstatSync(p);
     if (st.isDirectory()) {
       removeEmptyDirs(p);
       try {
