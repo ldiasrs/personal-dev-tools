@@ -12,13 +12,22 @@ Encrypted, portable Mac backup bundle. Run on your current Mac, restore on a fre
 - macOS system defaults (from `defaults/macos-defaults.json`)
 - Large directories you opt in to via interactive prompt
 
-## What's intentionally NOT backed up
+## What's blocked by default (the "secrets gate")
 
-- `~/.ssh/` and other SSH keys
-- `~/.config/gh/hosts.yml` (GitHub auth token)
-- `.aws/credentials*`, `.env*`, `*.pem`, `*.key`, tokens, secrets
+When we copy whole directories like `~/Documents`, we sweep up everything inside — including secret-looking files that might be hiding in old project folders. The **secrets gate** is a safety net: it filters out files matching a known-bad pattern list before the archive is built, and **hard-fails** the backup if anything still slips through. The blocked patterns are:
 
-A **secrets gate** scans every file before encryption and **hard-fails** the backup if anything secret-looking sneaks in. Override with `--allow-secrets-warning`.
+- `*.pem`, `*.key` — private keys
+- `id_rsa*`, `id_ed25519*`, `id_ecdsa*`, `id_dsa*` — SSH private keys
+- `credentials`, `credentials.json` — AWS / GCP creds (better restored via SSO login)
+- `hosts.yml` — gh CLI auth tokens
+- `.npmrc`, `.pypirc` — usually contain registry tokens
+- `*token*`, `*secret*` — generic catch-all
+
+You can edit these in `defaults/config.json` under `exclude`. Override the hard-fail with `--allow-secrets-warning` (file is still skipped, just doesn't abort).
+
+**Note:** `.env` files **are** backed up by default — they often hold local dev config you want to keep. If you'd rather block them, add `**/.env` and `**/.env.*` back to `exclude`.
+
+**Also genuinely not backed up:** `~/.ssh/` (you should restore SSH keys via a separate, more secure channel — encrypted USB, 1Password, etc.) — but that's a config choice in `include.home`, not the secrets gate.
 
 ## Usage
 

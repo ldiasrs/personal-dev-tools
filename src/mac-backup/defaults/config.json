@@ -64,8 +64,6 @@
     "**/id_ed25519*",
     "**/id_ecdsa*",
     "**/id_dsa*",
-    "**/.env",
-    "**/.env.*",
     "**/.npmrc",
     "**/.pypirc",
     "**/*token*",
