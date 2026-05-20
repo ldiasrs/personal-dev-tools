@@ -5,6 +5,8 @@ Encrypted, portable Mac backup bundle. Run on your current Mac, restore on a fre
 ## What gets backed up
 
 - `$HOME` dotfiles (`.zshrc`, `.gitconfig`, `.asdfrc`, `.tool-versions`, etc.)
+- **Whole directories by default**: `~/Documents` and `~/Downloads`
+  (configurable via `include.dirs`; `node_modules`, build dirs, secrets, and prior backups are auto-excluded)
 - VS Code settings + snippets + extension list
 - Homebrew packages (auto-dumped Brewfile)
 - macOS system defaults (from `defaults/macos-defaults.json`)
@@ -67,7 +69,9 @@ It will:
 
 Edit `defaults/config.json` to change:
 - `outputDir` — where backups land
-- `include.home` — which `$HOME` files to track
+- `include.home` — individual `$HOME` files to track
+- `include.dirs` — whole directories to back up (default: `~/Documents`, `~/Downloads`)
+- `include.dirExcludePatterns` — patterns skipped inside `include.dirs` (default: `node_modules`, `dist`, build artifacts, prior backup folders, etc.)
 - `exclude` — secrets-gate glob patterns
 - `scanForLarge.minSizeMB` — threshold for large-dir prompts
 - `scanForLarge.autoSkip` — paths pre-unchecked in the prompt

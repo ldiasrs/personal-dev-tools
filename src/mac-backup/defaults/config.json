@@ -15,6 +15,34 @@
       ".docker/config.json",
       ".config/gh/config.yml"
     ],
+    "dirs": [
+      "~/Documents",
+      "~/Downloads"
+    ],
+    "dirExcludePatterns": [
+      "node_modules",
+      ".next",
+      ".nuxt",
+      ".turbo",
+      "dist",
+      "build",
+      "out",
+      "target",
+      ".cache",
+      ".gradle",
+      ".idea",
+      "__pycache__",
+      ".pytest_cache",
+      ".venv",
+      "venv",
+      ".DS_Store",
+      "*.log",
+      "*.tar",
+      "*.tar.enc",
+      "home-configs-*",
+      "home-pre-restore-*",
+      "mac-backups"
+    ],
     "vscode": {
       "userDir": "~/Library/Application Support/Code/User",
       "files": ["settings.json", "keybindings.json"],

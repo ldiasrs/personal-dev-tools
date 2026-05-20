@@ -31,12 +31,22 @@ function copyFileEnsure(src, dest) {
   fs.copyFileSync(src, dest);
 }
 
-function copyDirRsync(src, dest) {
+function copyDirRsync(src, dest, excludes = []) {
   fs.mkdirSync(dest, { recursive: true });
-  const r = spawnSync('rsync', ['-a', src.endsWith('/') ? src : src + '/', dest + '/'], {
+  const args = ['-a'];
+  for (const ex of excludes) args.push('--exclude', ex);
+  args.push(src.endsWith('/') ? src : src + '/', dest + '/');
+  const r = spawnSync('rsync', args, {
     stdio: ['ignore', 'inherit', 'inherit']
   });
   if (r.status !== 0) throw new Error(`rsync failed for ${src} -> ${dest}`);
+}
+
+function rsyncExcludesFromConfig(cfg) {
+  // Convert "**/foo" -> "foo" (rsync matches at any depth by default)
+  const secretsGlobs = (cfg.exclude || []).map((p) => p.replace(/^\*\*\//, ''));
+  const dirExcludes = cfg.include?.dirExcludePatterns || [];
+  return [...new Set([...secretsGlobs, ...dirExcludes])];
 }
 
 function walkFiles(dir) {
@@ -228,6 +238,41 @@ export async function runBackup({ configPath, allowSecrets } = {}) {
       fs.copyFileSync(resolved, dest);
       items.push({ type: 'macos-defaults', archivePath: 'macos-defaults.json' });
       console.log('\n→ macOS defaults file: ✓');
+    }
+  }
+
+  // 4b. include.dirs — whole directories backed up by default
+  if (Array.isArray(cfg.include?.dirs) && cfg.include.dirs.length) {
+    console.log('\n→ Copying whole directories from include.dirs');
+    const excludes = rsyncExcludesFromConfig(cfg);
+    // Auto-exclude the outputDir basename so we never recurse into our own backups
+    const outputBase = path.basename(cfg.outputDir);
+    if (!excludes.includes(outputBase)) excludes.push(outputBase);
+
+    for (const rawPath of cfg.include.dirs) {
+      const src = expandHome(rawPath);
+      if (!fs.existsSync(src)) {
+        console.log(`  skip (not found): ${rawPath}`);
+        continue;
+      }
+      const name = safeName(src);
+      const dest = path.join(staging, 'userdirs', name);
+      try {
+        const stat = fs.statSync(src);
+        if (stat.isDirectory()) {
+          copyDirRsync(src, dest, excludes);
+        } else {
+          copyFileEnsure(src, dest);
+        }
+        items.push({
+          type: 'user-dir',
+          source: src,
+          archivePath: path.join('userdirs', name)
+        });
+        console.log(`  ✓ ${rawPath}`);
+      } catch (e) {
+        console.log(`  ! failed: ${rawPath} (${e.message})`);
+      }
     }
   }
 

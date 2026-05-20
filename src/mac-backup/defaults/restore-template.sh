@@ -97,16 +97,16 @@ if [ -d "$EXTRACT_DIR/vscode" ]; then
   fi
 fi
 
-# ---------- 6b. Extras (large dirs the user opted in to) ----------
-if [ -d "$EXTRACT_DIR/extras" ]; then
-  step "Restoring extras from manifest"
+# ---------- 6b. User dirs + extras (paths the manifest maps back to absolute locations) ----------
+if [ -d "$EXTRACT_DIR/userdirs" ] || [ -d "$EXTRACT_DIR/extras" ]; then
+  step "Restoring user directories from manifest"
   python3 - "$CFG_FILE" "$EXTRACT_DIR" <<'PY'
-import json, os, sys, shutil, subprocess
+import json, os, sys, subprocess
 cfg_file, extract_dir = sys.argv[1], sys.argv[2]
 with open(cfg_file) as f:
     manifest = json.load(f)
 for item in manifest.get("items", []):
-    if item.get("type") != "extra":
+    if item.get("type") not in ("extra", "user-dir"):
         continue
     src = os.path.join(extract_dir, item["archivePath"])
     dst = item.get("source")
@@ -114,10 +114,13 @@ for item in manifest.get("items", []):
         print(f"  skip: {item['archivePath']}")
         continue
     os.makedirs(os.path.dirname(dst), exist_ok=True)
-    print(f"  rsync -> {dst}")
-    subprocess.run(["rsync", "-a", src + "/", dst + "/"], check=False)
+    print(f"  {item['type']:10s} -> {dst}")
+    if os.path.isdir(src):
+        subprocess.run(["rsync", "-a", src + "/", dst + "/"], check=False)
+    else:
+        subprocess.run(["cp", "-p", src, dst], check=False)
 PY
-  green "  Extras restored"
+  green "  User directories restored"
 fi
 
 # ---------- 7. macOS defaults ----------
