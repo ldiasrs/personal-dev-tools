@@ -1,33 +1,44 @@
 # mac-backup
 
-Encrypted, portable Mac backup bundle. Run on your current Mac, restore on a fresh one with a single shell script.
+Encrypted, portable Mac backup bundle. Run on your current Mac, restore on a fresh one by cloning this repo and running two npm scripts.
 
 ## What gets backed up
 
+The backup produces **two encrypted archives** per bundle:
+
+**`main.zip.enc`** — everything you need to be productive again:
 - `$HOME` dotfiles (`.zshrc`, `.gitconfig`, `.asdfrc`, `.tool-versions`, etc.)
-- **Whole directories by default**: `~/Documents` and `~/Downloads`
-  (configurable via `include.dirs`; `node_modules`, build dirs, secrets, and prior backups are auto-excluded)
+- Whole directories: `~/Documents`, `~/Downloads` (configurable via `include.dirs`)
 - VS Code settings + snippets + extension list
 - Homebrew packages (auto-dumped Brewfile)
 - macOS system defaults (from `defaults/macos-defaults.json`)
 - Large directories you opt in to via interactive prompt
 
-## What's blocked by default (the "secrets gate")
+**`security.zip.enc`** — sensitive files that you may want to restore separately (or skip entirely):
+- `~/.ssh/` (private keys, known_hosts, config)
+- `~/.aws/credentials` (if present)
+- `~/.config/gh/hosts.yml` (GitHub auth token)
+- Anything inside the main backup that matched a security pattern (`*.pem`, `*.key`, `id_rsa*`, `credentials`, `*token*`, `*secret*`, `.npmrc`, `.pypirc`, etc.) — these are **moved** from main into security, never duplicated.
 
-When we copy whole directories like `~/Documents`, we sweep up everything inside — including secret-looking files that might be hiding in old project folders. The **secrets gate** is a safety net: it filters out files matching a known-bad pattern list before the archive is built, and **hard-fails** the backup if anything still slips through. The blocked patterns are:
+The `alsoInclude` list in `defaults/config.json` controls which paths are always added to security. The `patterns` list controls which files get pulled out of main and routed to security.
 
-- `*.pem`, `*.key` — private keys
-- `id_rsa*`, `id_ed25519*`, `id_ecdsa*`, `id_dsa*` — SSH private keys
-- `credentials`, `credentials.json` — AWS / GCP creds (better restored via SSO login)
-- `hosts.yml` — gh CLI auth tokens
-- `.npmrc`, `.pypirc` — usually contain registry tokens
-- `*token*`, `*secret*` — generic catch-all
+### Skipping security entirely
 
-You can edit these in `defaults/config.json` under `exclude`. Override the hard-fail with `--allow-secrets-warning` (file is still skipped, just doesn't abort).
+Pass `--skip-security` to backup, or set `"skipSecurity": true` in config.json. With that on, security files are still **stripped from main** (so they're not encrypted into the shared bundle) but no security archive is produced. They simply aren't in the backup at all.
 
-**Note:** `.env` files **are** backed up by default — they often hold local dev config you want to keep. If you'd rather block them, add `**/.env` and `**/.env.*` back to `exclude`.
+## Bundle layout
 
-**Also genuinely not backed up:** `~/.ssh/` (you should restore SSH keys via a separate, more secure channel — encrypted USB, 1Password, etc.) — but that's a config choice in `include.home`, not the secrets gate.
+Each backup creates a folder:
+
+```
+~/Documents/mac-backups/
+└── 2026-05-20-184500-bkp/
+    ├── main.zip.enc           # encrypted main archive
+    ├── security.zip.enc       # encrypted security archive (if any)
+    ├── config.json            # manifest (viewable without decrypting)
+    ├── files.log              # human-readable contents + sizes
+    └── README.txt             # quick restore instructions
+```
 
 ## Usage
 
@@ -43,72 +54,81 @@ brew bundle install --file=Brewfile.starter
 ```sh
 cd ~/Documents/personal-projects/personal-dev-tools
 npm run mac-backup
+# or, no security archive:
+npm run mac-backup -- --skip-security
 ```
 
-You'll be prompted to:
-1. Pick large directories to include
-2. Add extra paths (free-form)
-3. Enter an encryption password (twice)
-
-Output: 4 files in `~/Documents/mac-backups/`:
-- `<ts>.tar.enc` — encrypted tarball
-- `uncrypt-and-restore-<ts>.sh` — self-contained restore script
-- `<ts>.config.json` — manifest (what's in it, where each path goes back to)
-- `<ts>.log` — human-readable list of contents + warnings
+You'll be prompted to pick large dirs, add extras, and enter an encryption password. The same password is used for both archives so a single decryption gets you everything.
 
 ### Restore on a fresh Mac
 
-Copy the 4 files to any folder on the new Mac, then:
+The restore assumes you've cloned this repo on the new Mac. On a totally clean Mac, do the prerequisites first:
 
 ```sh
-bash uncrypt-and-restore-<ts>.sh
+# Install Homebrew + the bare minimum
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+eval "$(/opt/homebrew/bin/brew shellenv)"
+brew install git node
+
+# Clone the tools repo
+git clone https://github.com/ldiasrs/personal-dev-tools.git
+cd personal-dev-tools && npm install
 ```
 
-It will:
-1. Decrypt the tarball (you'll be prompted for the password)
-2. Install Homebrew + run `brew bundle install`
-3. rsync `$HOME` dotfiles into place
-4. Restore VS Code settings + install extensions
-5. rsync extras (large dirs you opted in to) back to their original locations
-6. Apply `macos-defaults.json` via `defaults write`
-7. Clone oh-my-zsh
-8. Print a manual checklist for things it can't automate (SSH keys, gh auth login, etc.)
+Then run:
+
+```sh
+# Step 1: main bundle (Brewfile installs apps, dotfiles, VS Code, ~/Documents, ...)
+npm run mac-restore ~/path/to/2026-05-20-184500-bkp
+
+# Step 2: security archive (only if you want SSH keys / AWS creds / tokens back)
+npm run mac-restore-security ~/path/to/2026-05-20-184500-bkp
+```
+
+You can also inspect what's in the bundle **without decrypting** — `config.json` is plaintext:
+
+```sh
+cat ~/path/to/2026-05-20-184500-bkp/config.json | jq .
+less ~/path/to/2026-05-20-184500-bkp/files.log
+```
 
 ## Configuration
 
-Edit `defaults/config.json` to change:
-- `outputDir` — where backups land
-- `include.home` — individual `$HOME` files to track
-- `include.dirs` — whole directories to back up (default: `~/Documents`, `~/Downloads`)
-- `include.dirExcludePatterns` — patterns skipped inside `include.dirs` (default: `node_modules`, `dist`, build artifacts, prior backup folders, etc.)
-- `exclude` — secrets-gate glob patterns
-- `scanForLarge.minSizeMB` — threshold for large-dir prompts
-- `scanForLarge.autoSkip` — paths pre-unchecked in the prompt
-- `secretsGate.mode` — `hardFail` (default) or `softWarn`
+Edit `defaults/config.json`:
 
-Use a different config: `node src/mac-backup/index.js backup --config /path/to/config.json`
+- `outputDir` — parent folder for bundles (default `~/Documents/mac-backups`)
+- `skipSecurity` — set `true` to never produce a security archive
+- `include.home` — individual `$HOME` files to track
+- `include.dirs` — whole directories (default: `~/Documents`, `~/Downloads`)
+- `include.dirExcludePatterns` — patterns skipped inside `include.dirs` (default: `node_modules`, `dist`, build artifacts, prior backup folders)
+- `include.vscode.*` — what to grab from `~/Library/Application Support/Code/User`
+- `include.security.alsoInclude` — paths always sent to security archive (default: `~/.ssh`, AWS creds, gh token)
+- `include.security.patterns` — files moved from main to security if they match any pattern
+- `scanForLarge.*` — interactive large-dir prompts during backup
 
 ## Files
 
 ```
 src/mac-backup/
-├── index.js                # CLI entry
-├── backup.js               # Backup orchestrator
-├── scanner.js              # du-based size scan + inquirer prompts
-├── crypto.js               # openssl spawn wrapper (AES-256-CBC + PBKDF2)
-├── archive.js              # tar spawn wrapper
-├── manifest.js             # config loader + manifest builder
-├── logger.js               # .log writer
+├── index.js              # CLI entry
+├── backup.js             # Backup orchestrator
+├── restore.js            # Main restore (no security)
+├── restore-security.js   # Security restore (~/.ssh, tokens, etc.)
+├── scanner.js            # du-based large-dir scan
+├── crypto.js             # openssl AES-256-CBC + PBKDF2
+├── archive.js            # zip / unzip
+├── manifest.js           # config loader + manifest builder
+├── prompt.js             # TTY/piped-stdin password reader
+├── logger.js             # files.log writer
 └── defaults/
-    ├── config.json         # Backup configuration
-    ├── macos-defaults.json # System tweaks to apply on restore
-    ├── Brewfile.starter    # Bootstrap dev app list
-    └── restore-template.sh # Template for the generated restore script
+    ├── config.json
+    ├── macos-defaults.json
+    └── Brewfile.starter
 ```
 
 ## Notes
 
-- Encryption: AES-256-CBC with PBKDF2 (200k iterations). Uses macOS's built-in LibreSSL.
-- The restore script is **pure bash + python3** — no Node required on the new Mac.
-- Password is passed via env var (not CLI args), never visible in `ps`.
-- The `config.json` sibling lets you audit what's in the backup *without* decrypting.
+- Encryption: AES-256-CBC with PBKDF2 (200k iterations) via macOS's built-in LibreSSL. Same password works for both archives.
+- Archives use `.zip` (built-in `zip`/`unzip` on macOS). File modes are preserved; SSH key permissions are also forced to 600 on restore as belt-and-suspenders.
+- Restore is pure Node — no generated shell scripts. The plaintext `config.json` and `files.log` make every backup self-documenting.
+- Password is passed via env var to openssl, never visible in `ps`.

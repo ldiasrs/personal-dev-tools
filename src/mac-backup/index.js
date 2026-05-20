@@ -1,38 +1,54 @@
 #!/usr/bin/env node
 import { runBackup } from './backup.js';
+import { runRestore } from './restore.js';
+import { runRestoreSecurity } from './restore-security.js';
 
 const argv = process.argv.slice(2);
-const cmd = argv[0] || 'backup';
+const cmd = argv[0];
 
 function getFlag(name) {
   const i = argv.indexOf(name);
   if (i === -1) return undefined;
-  return argv[i + 1] ?? true;
+  const next = argv[i + 1];
+  return next && !next.startsWith('--') ? next : true;
+}
+
+function positional(skip = 1) {
+  return argv.slice(skip).find((a) => !a.startsWith('--'));
 }
 
 async function main() {
-  if (cmd === 'backup') {
-    await runBackup({
-      configPath: getFlag('--config'),
-      allowSecrets: getFlag('--allow-secrets-warning') === true
-    });
-  } else if (cmd === 'restore') {
-    console.log('Restore is performed by the generated uncrypt-and-restore-<ts>.sh');
-    console.log('Run that script directly:  bash uncrypt-and-restore-<ts>.sh');
-  } else if (cmd === '--help' || cmd === '-h') {
-    console.log(`mac-backup [backup|restore] [options]
+  switch (cmd) {
+    case 'backup':
+      await runBackup({
+        configPath: getFlag('--config'),
+        skipSecurity: getFlag('--skip-security') === true
+      });
+      break;
+    case 'restore':
+      await runRestore({ bundleDir: positional() });
+      break;
+    case 'restore-security':
+      await runRestoreSecurity({ bundleDir: positional() });
+      break;
+    case '--help':
+    case '-h':
+    case undefined:
+      console.log(`mac-backup <command> [options]
 
-  backup                       Create an encrypted backup bundle
-    --config <path>            Use a custom config.json
-    --allow-secrets-warning    Downgrade secrets gate from hard-fail to warn+skip
+  backup                                  Create an encrypted backup bundle
+    --config <path>                       Use a custom config.json
+    --skip-security                       Don't produce a security.zip.enc
 
-  restore                      Tells you to run the generated .sh
+  restore <bundle-folder>                 Restore the main bundle (no secrets)
 
-  --help                       Show this
+  restore-security <bundle-folder>        Restore the security archive
+                                          (~/.ssh, AWS creds, tokens, *.pem)
 `);
-  } else {
-    console.error(`Unknown command: ${cmd}`);
-    process.exit(1);
+      break;
+    default:
+      console.error(`Unknown command: ${cmd}`);
+      process.exit(1);
   }
 }
 

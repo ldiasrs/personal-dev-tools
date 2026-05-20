@@ -40,7 +40,9 @@ export function timestamp() {
   const pad = (n) => String(n).padStart(2, '0');
   return (
     d.getFullYear().toString() +
+    '-' +
     pad(d.getMonth() + 1) +
+    '-' +
     pad(d.getDate()) +
     '-' +
     pad(d.getHours()) +
@@ -49,7 +51,7 @@ export function timestamp() {
   );
 }
 
-export function buildManifest({ ts, hostname, items }) {
+export function buildManifest({ ts, hostname, items, encryption }) {
   return {
     version: 1,
     createdAt: new Date().toISOString(),
@@ -57,6 +59,7 @@ export function buildManifest({ ts, hostname, items }) {
     hostname,
     macos: os.release(),
     node: process.version,
+    encryption,
     items
   };
 }

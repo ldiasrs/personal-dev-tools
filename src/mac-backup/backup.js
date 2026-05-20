@@ -2,28 +2,33 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
-import inquirer from 'inquirer';
+import { promptPassword } from './prompt.js';
 
 import { loadConfig, expandHome, timestamp, buildManifest, defaultsDir } from './manifest.js';
 import { scanLargeDirs } from './scanner.js';
 import { encrypt } from './crypto.js';
-import { tarCreate } from './archive.js';
+import { zipCreate } from './archive.js';
 import { writeLog } from './logger.js';
 
 function globToRegex(glob) {
-  // simple **/, *, ? handling
-  let re = glob
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*\*\//g, '(?:.*/)?')
-    .replace(/\*\*/g, '.*')
-    .replace(/\*/g, '[^/]*')
-    .replace(/\?/g, '[^/]');
-  return new RegExp('^' + re + '$');
+  // Tokenize to avoid the trap of re-replacing chars we just emitted.
+  const TOK = { DSLASH: '\x00A\x00', DSTAR: '\x00B\x00', STAR: '\x00C\x00', Q: '\x00D\x00' };
+  let s = glob
+    .replace(/\*\*\//g, TOK.DSLASH)
+    .replace(/\*\*/g, TOK.DSTAR)
+    .replace(/\*/g, TOK.STAR)
+    .replace(/\?/g, TOK.Q);
+  s = s.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  s = s
+    .replace(new RegExp(TOK.DSLASH, 'g'), '(?:.*/)?')
+    .replace(new RegExp(TOK.DSTAR, 'g'), '.*')
+    .replace(new RegExp(TOK.STAR, 'g'), '[^/]*')
+    .replace(new RegExp(TOK.Q, 'g'), '[^/]');
+  return new RegExp('^' + s + '$');
 }
 
-function isSecret(filePath, patterns) {
-  const regs = patterns.map(globToRegex);
-  return regs.some((r) => r.test(filePath));
+function matchesAny(p, regs) {
+  return regs.some((r) => r.test(p));
 }
 
 function copyFileEnsure(src, dest) {
@@ -42,24 +47,6 @@ function copyDirRsync(src, dest, excludes = []) {
   if (r.status !== 0) throw new Error(`rsync failed for ${src} -> ${dest}`);
 }
 
-function rsyncExcludesFromConfig(cfg) {
-  // Convert "**/foo" -> "foo" (rsync matches at any depth by default)
-  const secretsGlobs = (cfg.exclude || []).map((p) => p.replace(/^\*\*\//, ''));
-  const dirExcludes = cfg.include?.dirExcludePatterns || [];
-  return [...new Set([...secretsGlobs, ...dirExcludes])];
-}
-
-function walkFiles(dir) {
-  const out = [];
-  if (!fs.existsSync(dir)) return out;
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...walkFiles(full));
-    else if (entry.isFile() || entry.isSymbolicLink()) out.push(full);
-  }
-  return out;
-}
-
 function safeName(p) {
   return p
     .replace(/^\/Users\/[^/]+\//, '')
@@ -67,93 +54,49 @@ function safeName(p) {
     .replace(/\//g, '__');
 }
 
-let _stdinBuffer = '';
-let _stdinAttached = false;
-
-function readSecret(prompt) {
-  return new Promise((resolve, reject) => {
-    const stdin = process.stdin;
-    const stdout = process.stdout;
-    const isTTY = stdin.isTTY;
-
-    stdout.write(prompt);
-
-    if (isTTY) {
-      stdin.setRawMode(true);
-      stdin.resume();
-      stdin.setEncoding('utf8');
-      let buf = '';
-      const onData = (key) => {
-        if (key === '\r' || key === '\n' || key === '') {
-          stdin.setRawMode(false);
-          stdin.pause();
-          stdin.removeListener('data', onData);
-          stdout.write('\n');
-          resolve(buf);
-        } else if (key === '') {
-          stdin.setRawMode(false);
-          stdout.write('\n');
-          reject(new Error('Aborted'));
-        } else if (key === '' || key === '\b') {
-          if (buf.length > 0) {
-            buf = buf.slice(0, -1);
-            stdout.write('\b \b');
-          }
-        } else {
-          buf += key;
-          stdout.write('*');
-        }
-      };
-      stdin.on('data', onData);
-    } else {
-      // Non-TTY: read one line from stdin (with shared buffer across calls)
-      const tryResolve = () => {
-        const nl = _stdinBuffer.indexOf('\n');
-        if (nl !== -1) {
-          const line = _stdinBuffer.slice(0, nl);
-          _stdinBuffer = _stdinBuffer.slice(nl + 1);
-          resolve(line);
-          return true;
-        }
-        return false;
-      };
-      if (tryResolve()) {
-        stdout.write('\n');
-        return;
-      }
-      stdin.setEncoding('utf8');
-      const onData = (chunk) => {
-        _stdinBuffer += chunk;
-        if (tryResolve()) {
-          stdin.removeListener('data', onData);
-          stdout.write('\n');
-        }
-      };
-      stdin.on('data', onData);
-      if (!_stdinAttached) {
-        stdin.resume();
-        _stdinAttached = true;
-      }
+function walkFiles(dir, base = dir) {
+  const out = [];
+  if (!fs.existsSync(dir)) return out;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...walkFiles(full, base));
+    else if (entry.isFile() || entry.isSymbolicLink()) {
+      out.push({ full, rel: path.relative(base, full) });
     }
-  });
+  }
+  return out;
 }
 
-async function promptPassword() {
-  const p1 = await readSecret('Encryption password: ');
-  const p2 = await readSecret('Confirm password:    ');
-  if (p1 !== p2) throw new Error('Passwords did not match');
-  if (p1.length < 8) throw new Error('Password must be at least 8 characters');
-  return p1;
+function moveFile(src, dest) {
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  fs.renameSync(src, dest);
 }
 
-export async function runBackup({ configPath, allowSecrets } = {}) {
+function removeEmptyDirs(root) {
+  if (!fs.existsSync(root)) return;
+  for (const name of fs.readdirSync(root)) {
+    const p = path.join(root, name);
+    const st = fs.statSync(p);
+    if (st.isDirectory()) {
+      removeEmptyDirs(p);
+      try {
+        if (fs.readdirSync(p).length === 0) fs.rmdirSync(p);
+      } catch {}
+    }
+  }
+}
+
+export async function runBackup({ configPath, skipSecurity: skipFlag } = {}) {
   const cfg = loadConfig(configPath);
   const ts = timestamp();
   const hostname = os.hostname();
+  const skipSecurity = skipFlag || cfg.skipSecurity === true;
 
+  const bundleDir = path.join(cfg.outputDir, `${ts}-bkp`);
   console.log(`\n→ mac-backup ${ts}`);
   console.log(`  Config: ${configPath || 'defaults/config.json'}`);
-  console.log(`  Output: ${cfg.outputDir}`);
+  console.log(`  Bundle: ${bundleDir}`);
+  console.log(`  Security archive: ${skipSecurity ? 'SKIPPED' : 'enabled'}`);
 
   const staging = fs.mkdtempSync(path.join(os.tmpdir(), `mac-backup-${ts}-`));
   const items = [];
@@ -182,8 +125,7 @@ export async function runBackup({ configPath, allowSecrets } = {}) {
         console.log(`  skip (not found): ${f}`);
         continue;
       }
-      const dest = path.join(staging, 'vscode', f);
-      copyFileEnsure(src, dest);
+      copyFileEnsure(src, path.join(staging, 'vscode', f));
       items.push({ type: 'vscode-file', source: src, archivePath: path.join('vscode', f) });
       console.log(`  ✓ ${f}`);
     }
@@ -193,8 +135,7 @@ export async function runBackup({ configPath, allowSecrets } = {}) {
         console.log(`  skip (not found): ${d}/`);
         continue;
       }
-      const dest = path.join(staging, 'vscode', d);
-      copyDirRsync(src, dest);
+      copyDirRsync(src, path.join(staging, 'vscode', d));
       items.push({ type: 'vscode-dir', source: src, archivePath: path.join('vscode', d) });
       console.log(`  ✓ ${d}/`);
     }
@@ -208,7 +149,7 @@ export async function runBackup({ configPath, allowSecrets } = {}) {
         const count = out.stdout.trim().split('\n').filter(Boolean).length;
         console.log(`  ✓ extensions.txt (${count})`);
       } else {
-        console.log(`  ! could not run 'code --list-extensions' (CLI not on PATH)`);
+        console.log(`  ! 'code' CLI not on PATH — skipping extensions list`);
       }
     }
   }
@@ -229,23 +170,21 @@ export async function runBackup({ configPath, allowSecrets } = {}) {
     }
   }
 
-  // 4. macOS defaults JSON (copy into archive so restore can apply it)
+  // 4. macOS defaults
   if (cfg.include.macosDefaults) {
     const src = path.join(defaultsDir(), '..', cfg.include.macosDefaults);
     const resolved = fs.existsSync(src) ? src : path.join(defaultsDir(), 'macos-defaults.json');
     if (fs.existsSync(resolved)) {
-      const dest = path.join(staging, 'macos-defaults.json');
-      fs.copyFileSync(resolved, dest);
+      fs.copyFileSync(resolved, path.join(staging, 'macos-defaults.json'));
       items.push({ type: 'macos-defaults', archivePath: 'macos-defaults.json' });
       console.log('\n→ macOS defaults file: ✓');
     }
   }
 
-  // 4b. include.dirs — whole directories backed up by default
+  // 5. include.dirs
   if (Array.isArray(cfg.include?.dirs) && cfg.include.dirs.length) {
     console.log('\n→ Copying whole directories from include.dirs');
-    const excludes = rsyncExcludesFromConfig(cfg);
-    // Auto-exclude the outputDir basename so we never recurse into our own backups
+    const excludes = [...(cfg.include.dirExcludePatterns || [])];
     const outputBase = path.basename(cfg.outputDir);
     if (!excludes.includes(outputBase)) excludes.push(outputBase);
 
@@ -259,11 +198,8 @@ export async function runBackup({ configPath, allowSecrets } = {}) {
       const dest = path.join(staging, 'userdirs', name);
       try {
         const stat = fs.statSync(src);
-        if (stat.isDirectory()) {
-          copyDirRsync(src, dest, excludes);
-        } else {
-          copyFileEnsure(src, dest);
-        }
+        if (stat.isDirectory()) copyDirRsync(src, dest, excludes);
+        else copyFileEnsure(src, dest);
         items.push({
           type: 'user-dir',
           source: src,
@@ -276,7 +212,7 @@ export async function runBackup({ configPath, allowSecrets } = {}) {
     }
   }
 
-  // 5. Large dirs (interactive)
+  // 6. Interactive large-dir scan
   console.log('\n→ Scanning for large directories');
   const extras = await scanLargeDirs(cfg);
   if (extras.length) {
@@ -295,104 +231,204 @@ export async function runBackup({ configPath, allowSecrets } = {}) {
     }
   }
 
-  // 6. Secrets gate
-  console.log('\n→ Running secrets gate');
-  const allFiles = walkFiles(staging);
-  const offenders = [];
-  for (const f of allFiles) {
-    const rel = path.relative(staging, f);
-    if (isSecret(rel, cfg.exclude || [])) offenders.push(rel);
-  }
-  if (offenders.length) {
-    const mode = cfg.secretsGate?.mode || 'hardFail';
-    if (mode === 'hardFail' && !allowSecrets) {
-      console.error('\n  ✗ Secrets gate matched the following paths:');
-      for (const o of offenders) console.error('    - ' + o);
-      console.error(`\n  Aborting. To override, re-run with --allow-secrets-warning`);
-      fs.rmSync(staging, { recursive: true, force: true });
-      process.exit(2);
-    }
-    // Soft mode or override: remove offenders and warn
-    console.log(`  ! ${offenders.length} secret-like file(s) removed from staging:`);
-    for (const o of offenders) {
-      console.log('    - ' + o);
-      fs.rmSync(path.join(staging, o), { force: true });
-    }
-  } else {
-    console.log('  ✓ no secrets detected');
-  }
-
-  // 7. Manifest
-  const manifest = buildManifest({ ts, hostname, items });
+  // 7. Manifest in staging (also goes into the archives)
+  const manifest = buildManifest({ ts, hostname, items, encryption: cfg.encryption });
+  manifest.skipSecurity = skipSecurity;
   fs.writeFileSync(path.join(staging, 'config.json'), JSON.stringify(manifest, null, 2));
 
-  // 8. Tar
-  console.log('\n→ Building tar archive');
-  const stagingEntries = fs.readdirSync(staging);
-  const tarPath = path.join(os.tmpdir(), `${ts}.tar`);
-  await tarCreate({ cwd: staging, outFile: tarPath, includeRelative: stagingEntries });
-  const tarSize = fs.statSync(tarPath).size;
-  console.log(`  ✓ ${(tarSize / 1024 / 1024).toFixed(1)} MB`);
+  // 8. Split into security vs main
+  console.log('\n→ Splitting security files');
+  const securityStaging = fs.mkdtempSync(path.join(os.tmpdir(), `mac-backup-sec-${ts}-`));
+  const securityPathMap = []; // { archivePath, target }
+  const securityPatterns = (cfg.include.security?.patterns || []).map(globToRegex);
 
-  // 9. Encrypt
-  console.log('\n→ Encrypting');
+  // 8a. Patterns: scan staging tree, move matches into securityStaging at same relative path
+  const all = walkFiles(staging);
+  let movedByPattern = 0;
+  for (const { full, rel } of all) {
+    if (rel === 'config.json') continue;
+    if (!matchesAny(rel, securityPatterns)) continue;
+
+    // Compute target = original source by mapping prefix via items
+    let target = null;
+    for (const it of items) {
+      if (!it.source) continue;
+      if (rel === it.archivePath) {
+        target = it.source;
+        break;
+      }
+      const pfx = it.archivePath + '/';
+      if (rel.startsWith(pfx)) {
+        target = path.join(it.source, rel.slice(pfx.length));
+        break;
+      }
+    }
+    if (!target) {
+      // Top-level non-mapped (Brewfile, macos-defaults.json) — leave in main
+      continue;
+    }
+
+    const secDest = path.join(securityStaging, rel);
+    moveFile(full, secDest);
+    securityPathMap.push({ archivePath: rel, target });
+    movedByPattern++;
+  }
+  removeEmptyDirs(staging);
+
+  // 8b. alsoInclude paths: copy directly into securityStaging/security-home/...
+  for (const raw of cfg.include.security?.alsoInclude || []) {
+    const src = expandHome(raw);
+    if (!fs.existsSync(src)) {
+      console.log(`  skip (not found): ${raw}`);
+      continue;
+    }
+    const rel = path.relative(os.homedir(), src);
+    const archivePath = path.join('security-home', rel);
+    const dest = path.join(securityStaging, archivePath);
+    try {
+      if (fs.statSync(src).isDirectory()) copyDirRsync(src, dest);
+      else copyFileEnsure(src, dest);
+      securityPathMap.push({ archivePath, target: src });
+      console.log(`  ✓ ${raw}`);
+    } catch (e) {
+      console.log(`  ! failed: ${raw} (${e.message})`);
+    }
+  }
+
+  // 8c. Write security manifest
+  if (securityPathMap.length) {
+    fs.writeFileSync(
+      path.join(securityStaging, 'security-paths.json'),
+      JSON.stringify({ version: 1, timestamp: ts, paths: securityPathMap }, null, 2)
+    );
+  }
+  console.log(`  ${movedByPattern} file(s) moved by pattern, ${securityPathMap.length - movedByPattern} alsoInclude path(s)`);
+
+  // 9. Password
+  console.log('\n→ Encryption password');
   const password = await promptPassword();
-  fs.mkdirSync(cfg.outputDir, { recursive: true });
-  const encPath = path.join(cfg.outputDir, `${ts}.tar.enc`);
-  await encrypt({
-    inFile: tarPath,
-    outFile: encPath,
-    password,
-    encryption: cfg.encryption
-  });
-  fs.rmSync(tarPath, { force: true });
-  const encSize = fs.statSync(encPath).size;
-  console.log(`  ✓ ${(encSize / 1024 / 1024).toFixed(1)} MB`);
 
-  // 10. Sibling config.json (manifest copy outside archive)
-  const cfgOutPath = path.join(cfg.outputDir, `${ts}.config.json`);
-  fs.writeFileSync(cfgOutPath, JSON.stringify(manifest, null, 2));
+  // 10. Make bundle folder
+  fs.mkdirSync(bundleDir, { recursive: true });
 
-  // 11. .log
-  const logPath = path.join(cfg.outputDir, `${ts}.log`);
-  writeLog(logPath, {
-    'Backup': {
+  // 11. Zip + encrypt MAIN
+  console.log('\n→ Zipping main');
+  const mainZip = path.join(os.tmpdir(), `main-${ts}.zip`);
+  const stagingEntries = fs.readdirSync(staging);
+  if (stagingEntries.length === 0) throw new Error('Main staging is empty — nothing to back up');
+  await zipCreate({ cwd: staging, outFile: mainZip, includeRelative: stagingEntries });
+  const mainZipSize = fs.statSync(mainZip).size;
+  console.log(`  ✓ ${(mainZipSize / 1024 / 1024).toFixed(1)} MB`);
+
+  console.log('→ Encrypting main');
+  const mainEnc = path.join(bundleDir, 'main.zip.enc');
+  await encrypt({ inFile: mainZip, outFile: mainEnc, password, encryption: cfg.encryption });
+  fs.rmSync(mainZip, { force: true });
+  const mainEncSize = fs.statSync(mainEnc).size;
+  console.log(`  ✓ ${(mainEncSize / 1024 / 1024).toFixed(1)} MB`);
+
+  // 12. Zip + encrypt SECURITY (unless skipped or empty)
+  let securityEncSize = 0;
+  if (!skipSecurity && securityPathMap.length) {
+    console.log('\n→ Zipping security');
+    const secZip = path.join(os.tmpdir(), `security-${ts}.zip`);
+    const secEntries = fs.readdirSync(securityStaging);
+    await zipCreate({ cwd: securityStaging, outFile: secZip, includeRelative: secEntries });
+    const secZipSize = fs.statSync(secZip).size;
+    console.log(`  ✓ ${(secZipSize / 1024 / 1024).toFixed(2)} MB`);
+
+    console.log('→ Encrypting security');
+    const secEnc = path.join(bundleDir, 'security.zip.enc');
+    await encrypt({ inFile: secZip, outFile: secEnc, password, encryption: cfg.encryption });
+    fs.rmSync(secZip, { force: true });
+    securityEncSize = fs.statSync(secEnc).size;
+    console.log(`  ✓ ${(securityEncSize / 1024 / 1024).toFixed(2)} MB`);
+  } else if (skipSecurity) {
+    console.log('\n→ Security archive: SKIPPED (skipSecurity=true)');
+  } else {
+    console.log('\n→ Security archive: skipped (nothing matched)');
+  }
+
+  // 13. Write sibling config.json + log + README
+  fs.writeFileSync(path.join(bundleDir, 'config.json'), JSON.stringify(manifest, null, 2));
+
+  writeLog(path.join(bundleDir, 'files.log'), {
+    Backup: {
       timestamp: ts,
       hostname,
       macos: os.release(),
       node: process.version,
-      output: cfg.outputDir,
-      tarSizeMB: +(tarSize / 1024 / 1024).toFixed(2),
-      encSizeMB: +(encSize / 1024 / 1024).toFixed(2)
+      bundleDir,
+      mainEncSizeMB: +(mainEncSize / 1024 / 1024).toFixed(2),
+      securityEncSizeMB: +(securityEncSize / 1024 / 1024).toFixed(2),
+      skipSecurity
     },
-    'Items included': items.map((i) => `${i.type.padEnd(18)} ${i.archivePath}${i.source ? '  <- ' + i.source : ''}`),
-    'Secrets gate offenders (skipped or aborted)': offenders.length ? offenders : ['(none)']
+    'Items (main archive)': items.map(
+      (i) => `${i.type.padEnd(18)} ${i.archivePath}${i.source ? '  <- ' + i.source : ''}`
+    ),
+    'Security paths': securityPathMap.length
+      ? securityPathMap.map((p) => `${p.archivePath}  ->  ${p.target}`)
+      : ['(none)']
   });
 
-  // 12. Generate uncrypt-and-restore-<ts>.sh from template
-  const tplPath = path.join(defaultsDir(), 'restore-template.sh');
-  let tpl = fs.readFileSync(tplPath, 'utf8');
-  tpl = tpl
-    .replace(/\{\{TS\}\}/g, ts)
-    .replace(/\{\{ENC_ALGO\}\}/g, cfg.encryption.algo)
-    .replace(/\{\{ENC_KDF\}\}/g, cfg.encryption.kdf)
-    .replace(/\{\{ENC_ITER\}\}/g, String(cfg.encryption.iter));
-  const restorePath = path.join(cfg.outputDir, `uncrypt-and-restore-${ts}.sh`);
-  fs.writeFileSync(restorePath, tpl);
-  fs.chmodSync(restorePath, 0o755);
+  writeRestoreReadme(bundleDir, { ts, hostname, hasSecurity: !!securityPathMap.length && !skipSecurity });
 
-  // 13. Cleanup staging
+  // 14. Cleanup
   fs.rmSync(staging, { recursive: true, force: true });
+  fs.rmSync(securityStaging, { recursive: true, force: true });
 
-  // Summary
+  // 15. Summary
   console.log('\n' + '='.repeat(60));
-  console.log('Backup complete. 4 files in ' + cfg.outputDir + ':');
-  console.log('  ' + path.basename(encPath));
-  console.log('  ' + path.basename(restorePath));
-  console.log('  ' + path.basename(cfgOutPath));
-  console.log('  ' + path.basename(logPath));
+  console.log('Backup complete. Files in ' + bundleDir + ':');
+  for (const f of fs.readdirSync(bundleDir)) console.log('  ' + f);
   console.log('='.repeat(60));
-  console.log('\nTo restore on a new Mac:');
-  console.log('  1. Copy all 4 files to the new Mac');
-  console.log(`  2. cd to that folder and run:  bash ${path.basename(restorePath)}`);
+  console.log('\nTo restore on a new Mac (assumes this repo is cloned):');
+  console.log(`  npm run mac-restore ${bundleDir}`);
+  if (securityPathMap.length && !skipSecurity) {
+    console.log(`  npm run mac-restore-security ${bundleDir}`);
+  }
+}
+
+function writeRestoreReadme(bundleDir, { ts, hostname, hasSecurity }) {
+  const body = `mac-backup bundle
+==================
+
+Created: ${ts}
+Source : ${hostname}
+
+Files in this folder
+--------------------
+  main.zip.enc        Main archive (dotfiles, VS Code, Brewfile, ~/Documents, ...)
+${hasSecurity ? '  security.zip.enc    Security archive (~/.ssh, AWS creds, tokens, *.pem, *.key)\n' : ''}  config.json         Manifest (what's in the archive, where it maps back)
+  files.log           Human-readable list of contents
+  README.txt          This file
+
+How to restore
+--------------
+
+Prerequisites on the new Mac:
+
+  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  eval "$(/opt/homebrew/bin/brew shellenv)"
+  brew install git node
+
+Clone the tools repo and install deps:
+
+  git clone https://github.com/ldiasrs/personal-dev-tools.git
+  cd personal-dev-tools && npm install
+
+Restore main bundle (Brewfile, dotfiles, VS Code, ~/Documents, ...):
+
+  npm run mac-restore /path/to/this/${ts}-bkp
+
+${hasSecurity ? `Restore security files (separate password if you used one):
+
+  npm run mac-restore-security /path/to/this/${ts}-bkp
+
+` : ''}Inspect what's inside before restoring (no decryption needed):
+
+  cat config.json | jq .
+  less files.log
+`;
+  fs.writeFileSync(path.join(bundleDir, 'README.txt'), body);
 }
