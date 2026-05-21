@@ -3,11 +3,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import inquirer from 'inquirer';
 
+import { expandHome } from './manifest.js';
+
 function duDir(p, maxDepth) {
-  const out = spawnSync('du', ['-sk', '-d', String(maxDepth), p], {
+  // BSD (macOS) du rejects `-s` together with `-d` — they're mutually
+  // exclusive. Use `-d` alone; `-k` reports sizes in KB.
+  // Don't bail on non-zero exit: du exits 1 when it hits TCC-protected
+  // directories but still emits valid sizes for everything else on stdout.
+  const out = spawnSync('du', ['-k', '-d', String(maxDepth), p], {
     encoding: 'utf8'
   });
-  if (out.status !== 0) return [];
+  if (!out.stdout) return [];
   return out.stdout
     .split('\n')
     .filter(Boolean)
@@ -24,19 +30,58 @@ function fmtSize(kb) {
   return kb + ' KB';
 }
 
+// Compile a dirExcludePatterns entry (e.g. "node_modules", ".next", "*.log")
+// into a basename-matching regex. Mirrors rsync --exclude's basename match.
+function patternToRegex(p) {
+  return new RegExp(
+    '^' +
+      p
+        .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+        .replace(/\*/g, '.*')
+        .replace(/\?/g, '.') +
+      '$'
+  );
+}
+
+function basenameMatchesAny(name, regs) {
+  return regs.some((r) => r.test(name));
+}
+
+// Walks every path in cfg.include.dirs, surfaces subdirectories >= minSizeMB
+// (after honoring dirExcludePatterns), and asks the user which ones to keep.
+// Returns the absolute paths the user UNCHECKED — these become per-source
+// rsync --exclude patterns when include.dirs is copied.
 export async function scanLargeDirs(cfg) {
   if (!cfg.scanForLarge?.enabled) return [];
-  const { roots, minSizeMB, maxDepth, autoSkip } = cfg.scanForLarge;
-  const minKb = (minSizeMB || 100) * 1024;
-  const skipSet = new Set(autoSkip || []);
 
+  const sources = (cfg.include?.dirs || [])
+    .map(expandHome)
+    .filter((p) => fs.existsSync(p));
+  if (sources.length === 0) {
+    console.log('  (no include.dirs configured to scan)');
+    return [];
+  }
+
+  const { minSizeMB, maxDepth, autoSkip } = cfg.scanForLarge;
+  const minKb = (minSizeMB || 100) * 1024;
+  const autoSkipSet = new Set((autoSkip || []).map(expandHome));
+  const excludeRegs = (cfg.include?.dirExcludePatterns || []).map(patternToRegex);
+
+  // Walk each include source, dedupe by absolute path (sources can overlap).
+  const seen = new Set();
   const all = [];
-  for (const root of roots) {
-    if (!fs.existsSync(root)) continue;
-    const entries = duDir(root, maxDepth || 2);
-    for (const e of entries) {
-      if (e.path === root) continue;
+  for (const src of sources) {
+    for (const e of duDir(src, maxDepth || 2)) {
+      if (e.path === src) continue;
       if (e.sizeKb < minKb) continue;
+      if (seen.has(e.path)) continue;
+      // Skip anything dirExcludePatterns already kills — showing it would
+      // be misleading since rsync won't copy it anyway.
+      if (basenameMatchesAny(path.basename(e.path), excludeRegs)) continue;
+      // Also skip if any ancestor along the way matches an exclude pattern.
+      const rel = path.relative(src, e.path);
+      if (rel.split(path.sep).some((seg) => basenameMatchesAny(seg, excludeRegs))) continue;
+      seen.add(e.path);
       all.push(e);
     }
   }
@@ -44,51 +89,36 @@ export async function scanLargeDirs(cfg) {
   all.sort((a, b) => b.sizeKb - a.sizeKb);
 
   if (all.length === 0) {
-    console.log('  (no directories above threshold)');
+    console.log('  (no subdirectories above threshold inside include.dirs)');
     return [];
   }
 
-  console.log(`\nFound ${all.length} directories above ${cfg.scanForLarge.minSizeMB} MB:`);
+  console.log(
+    `\nFound ${all.length} director${all.length === 1 ? 'y' : 'ies'} >= ${cfg.scanForLarge.minSizeMB} MB inside include.dirs:`
+  );
   for (const e of all) {
-    const tag = skipSet.has(e.path) ? ' (auto-skip)' : '';
+    const tag = autoSkipSet.has(e.path) ? '  (auto-excluded)' : '';
     console.log(`  ${fmtSize(e.sizeKb).padStart(8)}  ${e.path}${tag}`);
   }
 
   const choices = all.map((e) => ({
-    name: `${fmtSize(e.sizeKb).padStart(8)}  ${e.path}${skipSet.has(e.path) ? '  (auto-skip)' : ''}`,
+    name: `${fmtSize(e.sizeKb).padStart(8)}  ${e.path}${autoSkipSet.has(e.path) ? '  (auto-excluded)' : ''}`,
     value: e.path,
-    checked: !skipSet.has(e.path)
+    checked: !autoSkipSet.has(e.path)
   }));
 
-  const { picked } = await inquirer.prompt([
+  const { kept } = await inquirer.prompt([
     {
       type: 'checkbox',
-      name: 'picked',
-      message: 'Select large directories to INCLUDE in backup (space to toggle, enter to confirm):',
+      name: 'kept',
+      message:
+        'Directories to INCLUDE in backup (uncheck to exclude). Space toggles, enter confirms:',
       choices,
       pageSize: Math.min(20, choices.length)
     }
   ]);
 
-  // Allow free-form additions
-  const extras = [];
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const { extra } = await inquirer.prompt([
-      {
-        type: 'input',
-        name: 'extra',
-        message: 'Add another path? (absolute path, or empty to finish)'
-      }
-    ]);
-    if (!extra) break;
-    const resolved = path.resolve(extra.replace(/^~/, process.env.HOME || ''));
-    if (!fs.existsSync(resolved)) {
-      console.log(`  Skipping: ${resolved} does not exist`);
-      continue;
-    }
-    extras.push(resolved);
-  }
-
-  return [...picked, ...extras];
+  const keptSet = new Set(kept);
+  // Return what the user removed — these become rsync --exclude args.
+  return all.map((e) => e.path).filter((p) => !keptSet.has(p));
 }

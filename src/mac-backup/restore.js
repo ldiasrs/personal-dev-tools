@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 
 import { loadConfig } from './manifest.js';
 import { decrypt } from './crypto.js';
-import { unzip } from './archive.js';
+import { archiveExtract, assertArchiveTools } from './archive.js';
 import { promptPassword } from './prompt.js';
 
 function rsyncBack(src, dest) {
@@ -21,13 +21,13 @@ function copyBack(src, dest) {
   fs.copyFileSync(src, dest);
 }
 
-async function decryptAndUnzip({ encPath, password, encryption, workDir }) {
-  const zipPath = path.join(workDir, 'archive.zip');
-  await decrypt({ inFile: encPath, outFile: zipPath, password, encryption });
+async function decryptAndExtract({ encPath, password, encryption, workDir }) {
+  const archivePath = path.join(workDir, 'archive.tar.zst');
+  await decrypt({ inFile: encPath, outFile: archivePath, password, encryption });
   const extract = path.join(workDir, 'extracted');
   fs.mkdirSync(extract, { recursive: true });
-  await unzip({ zipFile: zipPath, dest: extract });
-  fs.rmSync(zipPath, { force: true });
+  await archiveExtract({ archiveFile: archivePath, dest: extract });
+  fs.rmSync(archivePath, { force: true });
   return extract;
 }
 
@@ -39,13 +39,14 @@ function loadManifest(bundleDir) {
 
 export async function runRestore({ bundleDir } = {}) {
   if (!bundleDir) throw new Error('Usage: mac-restore <bundle-folder>');
+  assertArchiveTools();
   bundleDir = path.resolve(bundleDir);
   if (!fs.existsSync(bundleDir)) throw new Error(`Bundle dir not found: ${bundleDir}`);
 
   const manifest = loadManifest(bundleDir);
   const cfg = loadConfig();
-  const encPath = path.join(bundleDir, 'main.zip.enc');
-  if (!fs.existsSync(encPath)) throw new Error(`Missing main.zip.enc in ${bundleDir}`);
+  const encPath = path.join(bundleDir, 'main.tar.zst.enc');
+  if (!fs.existsSync(encPath)) throw new Error(`Missing main.tar.zst.enc in ${bundleDir}`);
 
   console.log(`\n→ mac-restore`);
   console.log(`  Bundle: ${bundleDir}`);
@@ -55,8 +56,8 @@ export async function runRestore({ bundleDir } = {}) {
   const password = await promptPassword({ confirm: false });
 
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), `mac-restore-${manifest.timestamp}-`));
-  console.log('\n→ Decrypting + unzipping main.zip.enc');
-  const extract = await decryptAndUnzip({
+  console.log('\n→ Decrypting + extracting main.tar.zst.enc');
+  const extract = await decryptAndExtract({
     encPath,
     password,
     encryption: manifest.encryption || cfg.encryption,

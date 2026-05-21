@@ -38,7 +38,7 @@ async function main() {
 
   backup                                  Create an encrypted backup bundle
     --config <path>                       Use a custom config.json
-    --skip-security                       Don't produce a security.zip.enc
+    --skip-security                       Don't produce a security.tar.zst.enc
 
   restore <bundle-folder>                 Restore the main bundle (no secrets)
 

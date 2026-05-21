@@ -7,7 +7,7 @@ import { promptPassword } from './prompt.js';
 import { loadConfig, expandHome, timestamp, buildManifest, defaultsDir } from './manifest.js';
 import { scanLargeDirs } from './scanner.js';
 import { encrypt } from './crypto.js';
-import { zipCreate } from './archive.js';
+import { archiveCreate, assertArchiveTools } from './archive.js';
 import { writeLog } from './logger.js';
 
 function globToRegex(glob) {
@@ -45,6 +45,30 @@ function copyDirRsync(src, dest, excludes = []) {
     stdio: ['ignore', 'inherit', 'inherit']
   });
   if (r.status !== 0) throw new Error(`rsync failed for ${src} -> ${dest}`);
+}
+
+// Node-native recursive copy that skips sockets/FIFOs/devices and preserves
+// symlinks + file modes. Used for security paths (e.g. ~/.ssh) where macOS's
+// openrsync trips over Unix domain sockets like the SSH agent socket.
+function copyDirSafe(src, dest) {
+  const srcStat = fs.lstatSync(src);
+  fs.mkdirSync(dest, { recursive: true });
+  fs.chmodSync(dest, srcStat.mode & 0o7777);
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const s = path.join(src, entry.name);
+    const d = path.join(dest, entry.name);
+    if (entry.isSocket() || entry.isFIFO() || entry.isCharacterDevice() || entry.isBlockDevice()) {
+      continue;
+    }
+    if (entry.isSymbolicLink()) {
+      fs.symlinkSync(fs.readlinkSync(s), d);
+    } else if (entry.isDirectory()) {
+      copyDirSafe(s, d);
+    } else if (entry.isFile()) {
+      fs.copyFileSync(s, d);
+      fs.chmodSync(d, fs.lstatSync(s).mode & 0o7777);
+    }
+  }
 }
 
 function safeName(p) {
@@ -87,6 +111,7 @@ function removeEmptyDirs(root) {
 }
 
 export async function runBackup({ configPath, skipSecurity: skipFlag } = {}) {
+  assertArchiveTools();
   const cfg = loadConfig(configPath);
   const ts = timestamp();
   const hostname = os.hostname();
@@ -181,12 +206,17 @@ export async function runBackup({ configPath, skipSecurity: skipFlag } = {}) {
     }
   }
 
-  // 5. include.dirs
+  // 5a. Interactive review of large subdirs inside include.dirs.
+  //     Returns absolute paths the user UNCHECKED — fed in as rsync excludes.
+  console.log('\n→ Scanning for large directories inside include.dirs');
+  const userExcludePaths = await scanLargeDirs(cfg);
+
+  // 5b. include.dirs (wholesale copy with pattern excludes + user-picked excludes)
   if (Array.isArray(cfg.include?.dirs) && cfg.include.dirs.length) {
     console.log('\n→ Copying whole directories from include.dirs');
-    const excludes = [...(cfg.include.dirExcludePatterns || [])];
+    const baseExcludes = [...(cfg.include.dirExcludePatterns || [])];
     const outputBase = path.basename(cfg.outputDir);
-    if (!excludes.includes(outputBase)) excludes.push(outputBase);
+    if (!baseExcludes.includes(outputBase)) baseExcludes.push(outputBase);
 
     for (const rawPath of cfg.include.dirs) {
       const src = expandHome(rawPath);
@@ -196,6 +226,17 @@ export async function runBackup({ configPath, skipSecurity: skipFlag } = {}) {
       }
       const name = safeName(src);
       const dest = path.join(staging, 'userdirs', name);
+
+      // Per-source excludes: config patterns + any user-deselected paths
+      // under this src, converted to /-anchored rsync patterns relative to src.
+      const excludes = [...baseExcludes];
+      for (const abs of userExcludePaths) {
+        if (abs === src) continue;
+        const rel = path.relative(src, abs);
+        if (!rel || rel.startsWith('..')) continue;
+        excludes.push('/' + rel);
+      }
+
       try {
         const stat = fs.statSync(src);
         if (stat.isDirectory()) copyDirRsync(src, dest, excludes);
@@ -208,25 +249,6 @@ export async function runBackup({ configPath, skipSecurity: skipFlag } = {}) {
         console.log(`  ✓ ${rawPath}`);
       } catch (e) {
         console.log(`  ! failed: ${rawPath} (${e.message})`);
-      }
-    }
-  }
-
-  // 6. Interactive large-dir scan
-  console.log('\n→ Scanning for large directories');
-  const extras = await scanLargeDirs(cfg);
-  if (extras.length) {
-    console.log(`\n→ Copying ${extras.length} extra path(s)`);
-    for (const p of extras) {
-      const name = safeName(p);
-      const dest = path.join(staging, 'extras', name);
-      try {
-        if (fs.statSync(p).isDirectory()) copyDirRsync(p, dest);
-        else copyFileEnsure(p, dest);
-        items.push({ type: 'extra', source: p, archivePath: path.join('extras', name) });
-        console.log(`  ✓ ${p}`);
-      } catch (e) {
-        console.log(`  ! failed: ${p} (${e.message})`);
       }
     }
   }
@@ -286,7 +308,7 @@ export async function runBackup({ configPath, skipSecurity: skipFlag } = {}) {
     const archivePath = path.join('security-home', rel);
     const dest = path.join(securityStaging, archivePath);
     try {
-      if (fs.statSync(src).isDirectory()) copyDirRsync(src, dest);
+      if (fs.statSync(src).isDirectory()) copyDirSafe(src, dest);
       else copyFileEnsure(src, dest);
       securityPathMap.push({ archivePath, target: src });
       console.log(`  ✓ ${raw}`);
@@ -311,36 +333,36 @@ export async function runBackup({ configPath, skipSecurity: skipFlag } = {}) {
   // 10. Make bundle folder
   fs.mkdirSync(bundleDir, { recursive: true });
 
-  // 11. Zip + encrypt MAIN
-  console.log('\n→ Zipping main');
-  const mainZip = path.join(os.tmpdir(), `main-${ts}.zip`);
+  // 11. Archive + encrypt MAIN
+  console.log('\n→ Archiving main (tar.zst)');
+  const mainArchive = path.join(os.tmpdir(), `main-${ts}.tar.zst`);
   const stagingEntries = fs.readdirSync(staging);
   if (stagingEntries.length === 0) throw new Error('Main staging is empty — nothing to back up');
-  await zipCreate({ cwd: staging, outFile: mainZip, includeRelative: stagingEntries });
-  const mainZipSize = fs.statSync(mainZip).size;
-  console.log(`  ✓ ${(mainZipSize / 1024 / 1024).toFixed(1)} MB`);
+  await archiveCreate({ cwd: staging, outFile: mainArchive, includeRelative: stagingEntries });
+  const mainArchiveSize = fs.statSync(mainArchive).size;
+  console.log(`  ✓ ${(mainArchiveSize / 1024 / 1024).toFixed(1)} MB`);
 
   console.log('→ Encrypting main');
-  const mainEnc = path.join(bundleDir, 'main.zip.enc');
-  await encrypt({ inFile: mainZip, outFile: mainEnc, password, encryption: cfg.encryption });
-  fs.rmSync(mainZip, { force: true });
+  const mainEnc = path.join(bundleDir, 'main.tar.zst.enc');
+  await encrypt({ inFile: mainArchive, outFile: mainEnc, password, encryption: cfg.encryption });
+  fs.rmSync(mainArchive, { force: true });
   const mainEncSize = fs.statSync(mainEnc).size;
   console.log(`  ✓ ${(mainEncSize / 1024 / 1024).toFixed(1)} MB`);
 
-  // 12. Zip + encrypt SECURITY (unless skipped or empty)
+  // 12. Archive + encrypt SECURITY (unless skipped or empty)
   let securityEncSize = 0;
   if (!skipSecurity && securityPathMap.length) {
-    console.log('\n→ Zipping security');
-    const secZip = path.join(os.tmpdir(), `security-${ts}.zip`);
+    console.log('\n→ Archiving security (tar.zst)');
+    const secArchive = path.join(os.tmpdir(), `security-${ts}.tar.zst`);
     const secEntries = fs.readdirSync(securityStaging);
-    await zipCreate({ cwd: securityStaging, outFile: secZip, includeRelative: secEntries });
-    const secZipSize = fs.statSync(secZip).size;
-    console.log(`  ✓ ${(secZipSize / 1024 / 1024).toFixed(2)} MB`);
+    await archiveCreate({ cwd: securityStaging, outFile: secArchive, includeRelative: secEntries });
+    const secArchiveSize = fs.statSync(secArchive).size;
+    console.log(`  ✓ ${(secArchiveSize / 1024 / 1024).toFixed(2)} MB`);
 
     console.log('→ Encrypting security');
-    const secEnc = path.join(bundleDir, 'security.zip.enc');
-    await encrypt({ inFile: secZip, outFile: secEnc, password, encryption: cfg.encryption });
-    fs.rmSync(secZip, { force: true });
+    const secEnc = path.join(bundleDir, 'security.tar.zst.enc');
+    await encrypt({ inFile: secArchive, outFile: secEnc, password, encryption: cfg.encryption });
+    fs.rmSync(secArchive, { force: true });
     securityEncSize = fs.statSync(secEnc).size;
     console.log(`  ✓ ${(securityEncSize / 1024 / 1024).toFixed(2)} MB`);
   } else if (skipSecurity) {
@@ -398,10 +420,10 @@ Source : ${hostname}
 
 Files in this folder
 --------------------
-  main.zip.enc        Main archive (dotfiles, VS Code, Brewfile, ~/Documents, ...)
-${hasSecurity ? '  security.zip.enc    Security archive (~/.ssh, AWS creds, tokens, *.pem, *.key)\n' : ''}  config.json         Manifest (what's in the archive, where it maps back)
-  files.log           Human-readable list of contents
-  README.txt          This file
+  main.tar.zst.enc      Main archive (dotfiles, VS Code, Brewfile, ~/Documents, ...)
+${hasSecurity ? '  security.tar.zst.enc  Security archive (~/.ssh, AWS creds, tokens, *.pem, *.key)\n' : ''}  config.json           Manifest (what's in the archive, where it maps back)
+  files.log             Human-readable list of contents
+  README.txt            This file
 
 How to restore
 --------------
@@ -410,7 +432,7 @@ Prerequisites on the new Mac:
 
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
   eval "$(/opt/homebrew/bin/brew shellenv)"
-  brew install git node
+  brew install git node zstd
 
 Clone the tools repo and install deps:
 

@@ -17,8 +17,8 @@
       ".config/gh/config.yml"
     ],
     "dirs": [
-      "~/Documents",
-      "~/Downloads"
+      "~/Downloads",
+      "~/Documents"
     ],
     "dirExcludePatterns": [
       "node_modules",
@@ -41,6 +41,7 @@
       "*.tar",
       "*.tar.enc",
       "*.zip.enc",
+      "*.tar.zst.enc",
       "home-configs-*",
       "home-pre-restore-*",
       "mac-backups"
@@ -80,21 +81,8 @@
   },
   "scanForLarge": {
     "enabled": true,
-    "roots": ["~", "~/Library"],
     "minSizeMB": 100,
-    "maxDepth": 2,
-    "autoSkip": [
-      "~/.Trash",
-      "~/Library/Caches",
-      "~/Library/Logs",
-      "~/.cache",
-      "~/.npm",
-      "~/.nvm",
-      "~/.pyenv",
-      "~/.oh-my-zsh",
-      "~/Library/Application Support/Code/Cache",
-      "~/Library/Application Support/Code/CachedData",
-      "~/Library/Application Support/Code/Code Cache"
-    ]
+    "maxDepth": 3,
+    "autoSkip": []
   }
 }

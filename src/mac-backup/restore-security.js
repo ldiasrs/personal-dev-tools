@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 
 import { loadConfig } from './manifest.js';
 import { decrypt } from './crypto.js';
-import { unzip } from './archive.js';
+import { archiveExtract, assertArchiveTools } from './archive.js';
 import { promptPassword } from './prompt.js';
 
 function rsyncBack(src, dest) {
@@ -34,11 +34,12 @@ function chmodSshKeys() {
 
 export async function runRestoreSecurity({ bundleDir } = {}) {
   if (!bundleDir) throw new Error('Usage: mac-restore-security <bundle-folder>');
+  assertArchiveTools();
   bundleDir = path.resolve(bundleDir);
-  const encPath = path.join(bundleDir, 'security.zip.enc');
+  const encPath = path.join(bundleDir, 'security.tar.zst.enc');
   const cfgPath = path.join(bundleDir, 'config.json');
   if (!fs.existsSync(encPath)) {
-    console.log('No security.zip.enc in this bundle (or skipSecurity was true at backup time).');
+    console.log('No security.tar.zst.enc in this bundle (or skipSecurity was true at backup time).');
     return;
   }
   const manifest = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
@@ -51,18 +52,18 @@ export async function runRestoreSecurity({ bundleDir } = {}) {
   const password = await promptPassword({ confirm: false });
 
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), `mac-restore-sec-`));
-  console.log('\n→ Decrypting + unzipping security.zip.enc');
-  const zipPath = path.join(workDir, 'security.zip');
+  console.log('\n→ Decrypting + extracting security.tar.zst.enc');
+  const archivePath = path.join(workDir, 'security.tar.zst');
   await decrypt({
     inFile: encPath,
-    outFile: zipPath,
+    outFile: archivePath,
     password,
     encryption: manifest.encryption || cfg.encryption
   });
   const extract = path.join(workDir, 'extracted');
   fs.mkdirSync(extract, { recursive: true });
-  await unzip({ zipFile: zipPath, dest: extract });
-  fs.rmSync(zipPath, { force: true });
+  await archiveExtract({ archiveFile: archivePath, dest: extract });
+  fs.rmSync(archivePath, { force: true });
 
   // Read security-paths.json from inside the archive
   const mapPath = path.join(extract, 'security-paths.json');

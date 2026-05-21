@@ -6,7 +6,7 @@ Encrypted, portable Mac backup bundle. Run on your current Mac, restore on a fre
 
 The backup produces **two encrypted archives** per bundle:
 
-**`main.zip.enc`** — everything you need to be productive again:
+**`main.tar.zst.enc`** — everything you need to be productive again:
 - `$HOME` dotfiles (`.zshrc`, `.gitconfig`, `.asdfrc`, `.tool-versions`, etc.)
 - Whole directories: `~/Documents`, `~/Downloads` (configurable via `include.dirs`)
 - VS Code settings + snippets + extension list
@@ -14,7 +14,7 @@ The backup produces **two encrypted archives** per bundle:
 - macOS system defaults (from `defaults/macos-defaults.json`)
 - Large directories you opt in to via interactive prompt
 
-**`security.zip.enc`** — sensitive files that you may want to restore separately (or skip entirely):
+**`security.tar.zst.enc`** — sensitive files that you may want to restore separately (or skip entirely):
 - `~/.ssh/` (private keys, known_hosts, config)
 - `~/.aws/credentials` (if present)
 - `~/.config/gh/hosts.yml` (GitHub auth token)
@@ -33,8 +33,8 @@ Each backup creates a folder:
 ```
 ~/Documents/mac-backups/
 └── 2026-05-20-184500-bkp/
-    ├── main.zip.enc           # encrypted main archive
-    ├── security.zip.enc       # encrypted security archive (if any)
+    ├── main.tar.zst.enc       # encrypted main archive
+    ├── security.tar.zst.enc   # encrypted security archive (if any)
     ├── config.json            # manifest (viewable without decrypting)
     ├── files.log              # human-readable contents + sizes
     └── README.txt             # quick restore instructions
@@ -68,7 +68,7 @@ The restore assumes you've cloned this repo on the new Mac. On a totally clean M
 # Install Homebrew + the bare minimum
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 eval "$(/opt/homebrew/bin/brew shellenv)"
-brew install git node
+brew install git node zstd
 
 # Clone the tools repo
 git clone https://github.com/ldiasrs/personal-dev-tools.git
@@ -116,7 +116,7 @@ src/mac-backup/
 ├── restore-security.js   # Security restore (~/.ssh, tokens, etc.)
 ├── scanner.js            # du-based large-dir scan
 ├── crypto.js             # openssl AES-256-CBC + PBKDF2
-├── archive.js            # zip / unzip
+├── archive.js            # tar | zstd create / extract
 ├── manifest.js           # config loader + manifest builder
 ├── prompt.js             # TTY/piped-stdin password reader
 ├── logger.js             # files.log writer
@@ -129,6 +129,6 @@ src/mac-backup/
 ## Notes
 
 - Encryption: AES-256-CBC with PBKDF2 (200k iterations) via macOS's built-in LibreSSL. Same password works for both archives.
-- Archives use `.zip` (built-in `zip`/`unzip` on macOS). File modes are preserved; SSH key permissions are also forced to 600 on restore as belt-and-suspenders.
+- Archives use `.tar.zst` — `tar` streamed through `zstd -T0 -3` (parallel, fast, better ratio than DEFLATE). Requires `brew install zstd` on both the backup and restore machines. File modes are preserved; SSH key permissions are also forced to 600 on restore as belt-and-suspenders.
 - Restore is pure Node — no generated shell scripts. The plaintext `config.json` and `files.log` make every backup self-documenting.
 - Password is passed via env var to openssl, never visible in `ps`.
