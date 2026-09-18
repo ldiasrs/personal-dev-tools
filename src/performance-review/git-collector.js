@@ -1,3 +1,4 @@
+import { existsSync } from "fs";
 import simpleGit from "simple-git";
 import { addDays, subDays, parseISO, format } from "date-fns";
 import { readProcessedHashes } from "./utils/file-manager.js";
@@ -17,9 +18,21 @@ export async function collectNewCommits(repos, identities, start, end) {
   const { after, before } = toGitRange(start, end);
 
   for (const repo of repos) {
-    const git = simpleGit(repo.path);
+    if (!repo?.path) {
+      console.warn("Warning: repo is missing a path, skipping.");
+      continue;
+    }
+
+    if (!existsSync(repo.path)) {
+      console.warn(`Warning: repo path does not exist at ${repo.path}, skipping.`);
+      continue;
+    }
+
+    let git;
 
     try {
+      // simpleGit() throws synchronously if the directory does not exist
+      git = simpleGit(repo.path);
       await git.status();
     } catch {
       console.warn(`Warning: repo not accessible at ${repo.path}, skipping.`);
