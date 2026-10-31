@@ -15,6 +15,13 @@ A collection of personal developer productivity tools.
 | `crypt` | `src/scripts/crypt.sh <encrypt\|decrypt> <value>` | AES encrypt/decrypt with the `CRYPT_KEY` passphrase |
 | `linear-team-id` | `src/scripts/linear-team-id.sh <TEAM_KEY>` | Linear team id by key (needs `LINEAR_API_KEY`) |
 | `linear-issue-id` | `src/scripts/linear-issue-id.sh <ISSUE-123>` | Linear issue id, title, state and URL (needs `LINEAR_API_KEY`) |
+| `env-check` | `src/scripts/env-check.sh [.env] [.env.example]` | Duplicate keys, unquoted `#`, keys missing from the example; never prints values |
+| `killport` | `src/scripts/killport.sh [-f] PORT...` | Free TCP ports: SIGTERM, then SIGKILL after 5s |
+| `wt` | `src/scripts/wt.sh [--no-install] BRANCH [BASE]` | New worktree at `../<repo>.worktrees/<branch>` with `.env` files copied and deps installed |
+| `my-prs` | `src/scripts/my-prs.sh [--review] [--json]` | Your open PRs across all repos with CI and review status |
+| `jwt` | `src/scripts/jwt.sh [TOKEN]` | Decode a JWT locally (arg, stdin or clipboard); shows expiry |
+| `docker-clean` | `src/scripts/docker-clean.sh [--yes] [--images] [--volumes]` | Reclaim Docker/Colima space; dry run by default, named volumes never touched |
+| `bootstrap-mac` | `src/scripts/bootstrap-mac.sh [--dry-run]` | New Mac setup: Xcode tools, Homebrew + [`Brewfile`](Brewfile), oh-my-zsh, zshrc.sample, Node, personal repos |
 | shell scripts | `src/scripts/*.sh` | Git, file and backup helpers; aliases in [`src/scripts/zshrc.sample`](src/scripts/zshrc.sample) |
 
 ---
