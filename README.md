@@ -11,6 +11,11 @@ A collection of personal developer productivity tools.
 | `performance-review` | `npm run perf-review` | AI-powered performance review generator from git commits |
 | `xml-los-format` | `npm run xml-los-format` | LOS XML formatter |
 | `login-ssn` | `npm run login-ssn` | Auto-login with SSH |
+| `sftp-server` | `npm run sftp-server` / `npm run sftp-test` | Local SFTP test server with upload logging — see [`src/sftp-server/README.md`](src/sftp-server/README.md) |
+| `crypt` | `src/scripts/crypt.sh <encrypt\|decrypt> <value>` | AES encrypt/decrypt with the `CRYPT_KEY` passphrase |
+| `linear-team-id` | `src/scripts/linear-team-id.sh <TEAM_KEY>` | Linear team id by key (needs `LINEAR_API_KEY`) |
+| `linear-issue-id` | `src/scripts/linear-issue-id.sh <ISSUE-123>` | Linear issue id, title, state and URL (needs `LINEAR_API_KEY`) |
+| shell scripts | `src/scripts/*.sh` | Git, file and backup helpers; aliases in [`src/scripts/zshrc.sample`](src/scripts/zshrc.sample) |
 
 ---
 

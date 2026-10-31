@@ -3,3 +3,5 @@ node_modules/
 src/auto-login/config.js
 performance-review/config/
 performance-review/data/
+src/sftp-server/keys/
+src/sftp-server/uploads/

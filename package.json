@@ -7,13 +7,17 @@
     "perf-review": "node src/performance-review/index.js",
     "mac-backup": "node src/mac-backup/index.js backup",
     "mac-restore": "node src/mac-backup/index.js restore",
-    "mac-restore-security": "node src/mac-backup/index.js restore-security"
+    "mac-restore-security": "node src/mac-backup/index.js restore-security",
+    "sftp-server": "node src/sftp-server/sftp-server.js",
+    "sftp-test": "node src/sftp-server/test-client.js",
+    "crypt": "node src/crypt/crypt.js"
   },
   "type": "module",
   "author": "Leonardo Dias",
   "license": "ISC",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
+    "crypto-js": "^4.2.0",
     "date-fns": "^3.6.0",
     "dotenv": "^16.0.3",
     "fs": "^0.0.1-security",
@@ -25,6 +29,7 @@
     "papaparse": "^5.3.2",
     "puppeteer": "^18.0.5",
     "simple-git": "^3.27.0",
+    "ssh2": "^1.17.0",
     "xml-formatter": "^3.0.2"
   },
   "engines": {

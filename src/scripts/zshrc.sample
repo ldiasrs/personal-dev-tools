@@ -78,3 +78,8 @@ export PYENV_ROOT="$HOME/.pyenv"
 command -v pyenv >/dev/null && eval "$(pyenv init -)"
 
 export PATH="$HOME/.local/bin:$PATH"
+
+# Personal tools (Linear helpers need LINEAR_API_KEY, crypt needs CRYPT_KEY)
+alias crypt="$PERSONAL_SCRIPT_HOME/crypt.sh"
+alias linearteam="$PERSONAL_SCRIPT_HOME/linear-team-id.sh"
+alias linearissue="$PERSONAL_SCRIPT_HOME/linear-issue-id.sh"
