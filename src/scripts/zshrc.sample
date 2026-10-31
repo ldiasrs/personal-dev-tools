@@ -1,0 +1,80 @@
+# Portable ~/.zshrc sample for personal-dev-tools.
+# Copy the parts you need into ~/.zshrc, or source this file from it:
+#   source "$HOME/Documents/personal-projects/personal-dev-tools/src/scripts/zshrc.sample"
+# Override any path below by exporting it before this file is sourced.
+
+export DOCUMENTS="${DOCUMENTS:-$HOME/Documents}"
+export PROJECTS="${PROJECTS:-$DOCUMENTS/projects}"
+export PERSONAL_SCRIPT_HOME="${PERSONAL_SCRIPT_HOME:-$DOCUMENTS/personal-projects/personal-dev-tools/src/scripts}"
+
+# Git
+alias gitpullstash="$PERSONAL_SCRIPT_HOME/git-pull-stash.sh"
+alias rebasemain="$PERSONAL_SCRIPT_HOME/rebase-main.sh"
+alias mainpull="$PERSONAL_SCRIPT_HOME/mainpull.sh"
+alias newbranch="$PERSONAL_SCRIPT_HOME/newbranch.sh"
+alias syncprojects="$PERSONAL_SCRIPT_HOME/sync-projects.sh"
+alias gitbranchesrm="$PERSONAL_SCRIPT_HOME/git-branches-rm.sh"
+
+# Files and processes
+alias tmpfile="$PERSONAL_SCRIPT_HOME/temp-file.sh"
+alias xmltemp="$PERSONAL_SCRIPT_HOME/temp-file.sh test.xml"
+alias jsontemp="$PERSONAL_SCRIPT_HOME/temp-file.sh test.json"
+alias downloadsarquivar="$PERSONAL_SCRIPT_HOME/downloads-arquivar.sh"
+alias nodekills="$PERSONAL_SCRIPT_HOME/node-kills.sh"
+alias dollar="$PERSONAL_SCRIPT_HOME/dollar.sh"
+
+# Backups
+alias backuphome="$PERSONAL_SCRIPT_HOME/backup-home-configs.sh"
+alias backupvscode="$PERSONAL_SCRIPT_HOME/backup-vscode.sh"
+alias restorevscode="$PERSONAL_SCRIPT_HOME/restore-vscode.sh"
+
+# Navigation
+alias cdpersonal='cd $DOCUMENTS/personal-projects'
+alias cddocuments='cd $DOCUMENTS'
+alias cddownloads='cd $HOME/Downloads'
+alias cdtmp='cd $PROJECTS/tmp'
+alias lsp='realpath'
+alias lsd='ls -ltr | awk '\''{print $6, $7, $8, " | ", $5, " | ", $9}'\'' | column -t'
+alias zshconfig="code ~/.zshrc"
+
+# oh-my-zsh, with a plain git-aware prompt when it is not installed
+export ZSH="$HOME/.oh-my-zsh"
+ZSH_THEME="robbyrussell"
+plugins=(git)
+[ -s "$ZSH/oh-my-zsh.sh" ] && source "$ZSH/oh-my-zsh.sh"
+
+if [ ! -s "$ZSH/oh-my-zsh.sh" ]; then
+  autoload -Uz colors && colors
+  autoload -Uz vcs_info
+  precmd() { vcs_info }
+  zstyle ':vcs_info:git:*' formats ' %F{magenta}(%b)%f'
+  setopt PROMPT_SUBST
+  PROMPT='%F{green}%n@%m%f %F{blue}%~%f${vcs_info_msg_0_} %F{yellow}> %f'
+  export CLICOLOR=1
+  alias ls='ls -G'
+  alias grep='grep --color=auto'
+fi
+
+# Toolchains: each line is skipped when the tool is not installed
+export SDKMAN_DIR="$HOME/.sdkman"
+[[ -s "$SDKMAN_DIR/bin/sdkman-init.sh" ]] && source "$SDKMAN_DIR/bin/sdkman-init.sh"
+
+export PNPM_HOME="$HOME/Library/pnpm"
+case ":$PATH:" in
+  *":$PNPM_HOME:"*) ;;
+  *) export PATH="$PNPM_HOME:$PATH" ;;
+esac
+
+export PATH="${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH"
+fpath=(${ASDF_DATA_DIR:-$HOME/.asdf}/completions $fpath)
+autoload -Uz compinit && compinit
+
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
+
+export PYENV_ROOT="$HOME/.pyenv"
+[[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"
+command -v pyenv >/dev/null && eval "$(pyenv init -)"
+
+export PATH="$HOME/.local/bin:$PATH"
